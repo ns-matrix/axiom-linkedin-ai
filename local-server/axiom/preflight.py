@@ -50,7 +50,8 @@ def port_owner(port: int) -> str:
                 ["tasklist", "/FI", f"PID eq {pid}", "/FO", "CSV", "/NH"],
                 capture_output=True, text=True, timeout=5, creationflags=creationflags,
             ).stdout.strip()
-            lines.append(f"PID {pid}: {tasklist.split(',')[0].strip('"')} ")
+            image_name = tasklist.split(",")[0].strip('"')
+            lines.append(f"PID {pid}: {image_name} ")
     except Exception as exc:  # diagnostics must never crash startup
         return f"(owner lookup failed: {exc})"
     return "; ".join(lines) if lines else "(owner could not be identified)"
