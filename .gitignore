@@ -1,0 +1,10 @@
+__pycache__/
+*.py[cod]
+local-server/.venv/
+local-server/.pytest_cache/
+local-server/data/
+.env
+.vercel/
+node_modules/
+*.log
+

@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Axiom Demo Feed</title>
+<style>
+  :root{--bg:#0f1420;--panel:#161d2e}
+  *{box-sizing:border-box}
+  body{margin:0;font-family:Inter,Segoe UI,system-ui,sans-serif;background:#0f1420;color:#e6ecf7}
+  header{background:#161d2e;border-bottom:1px solid #2a3448;padding:14px 24px;display:flex;align-items:center;gap:14px}
+  header h1{font-size:16px;margin:0;letter-spacing:.5px}
+  header .badge{font-size:10px;background:#25365a;padding:3px 8px;border-radius:12px;color:#9fb6e8}
+  main{max-width:640px;margin:24px auto;padding:0 16px}
+  .card{background:#161d2e;border:1px solid #2a3448;border-radius:12px;padding:18px;margin-bottom:16px}
+  .composer-start{display:flex;gap:12px;align-items:center}
+  .avatar{width:44px;height:44px;border-radius:50%;background:linear-gradient(135deg,#6c89ff,#5640cc);flex:none}
+  .fake-input{flex:1;text-align:left;background:#0d1322;border:1px solid #33405e;border-radius:24px;color:#8fa0c0;padding:12px 16px;cursor:pointer;font:inherit}
+  button{font:inherit;border:0;border-radius:22px;padding:10px 20px;cursor:pointer;font-weight:600}
+  #composer{display:none}
+  #composer.open{display:block}
+  textarea{width:100%;min-height:110px;background:#0d1322;border:1px solid #33405e;border-radius:8px;color:#e6ecf7;padding:12px;font:inherit;resize:vertical}
+  .row{display:flex;justify-content:space-between;align-items:center;margin-top:12px}
+  .primary{background:#6c89ff;color:#0b1222}
+  .ghost{background:#222c44;color:#c3d0ea}
+  .toast{position:fixed;right:20px;bottom:20px;background:#12372f;color:#7fe3bd;border:1px solid #1d5c48;padding:12px 18px;border-radius:10px;display:none}
+  .toast.show{display:block}
+  .post h3{margin:0 0 4px;font-size:14px}
+  .post p{margin:6px 0 0;line-height:1.55;color:#b9c5dd}
+  .meta{font-size:11px;color:#7b89a8;margin-top:8px}
+  .charcount{font-size:11px;color:#7b89a8}
+</style>
+</head>
+<body>
+<header>
+  <h1>Axiom Demo Feed</h1>
+  <span class="badge">local practice site · no LinkedIn account</span>
+</header>
+<main>
+  <section class="card">
+    <div class="composer-start">
+      <div class="avatar"></div>
+      <button class="fake-input" data-testid="share-start-post" type="button">Start a post</button>
+    </div>
+    <div id="composer">
+      <div class="row"><strong>Create a post</strong><span class="charcount" id="charcount">0 characters</span></div>
+      <textarea data-testid="share-text" id="post-text" placeholder="What do you want to talk about?"></textarea>
+      <div class="row">
+        <button class="ghost" type="button" id="cancel-post">Cancel</button>
+        <button class="primary" type="button" data-testid="share-action" id="publish-btn" disabled>Post</button>
+      </div>
+    </div>
+  </section>
+
+  <section class="card post">
+    <h3>Demo Account</h3>
+    <div class="meta">Just now · visible to anyone</div>
+    <p>This is a sample post on the Axiom practice feed. Record yourself opening the composer, typing, and pressing Post — then save it as a skill and run it back.</p>
+  </section>
+  <section class="card post">
+    <h3>Another User</h3>
+    <div class="meta">2h ago</div>
+    <p>Verification demo: after a successful run the success toast below appears, which the executor can inspect to confirm the action.</p>
+  </section>
+</main>
+
+<div class="toast" data-testid="share-success" id="toast">Post published (demo)</div>
+
+<script>
+  const composer = document.getElementById('composer');
+  const text = document.getElementById('post-text');
+  const publish = document.getElementById('publish-btn');
+  const toast = document.getElementById('toast');
+  document.querySelector('[data-testid="share-start-post"]').addEventListener('click', () => {
+    composer.classList.add('open');
+    text.focus();
+  });
+  document.getElementById('cancel-post').addEventListener('click', () => {
+    composer.classList.remove('open');
+    text.value = '';
+    publish.disabled = true;
+    document.getElementById('charcount').textContent = '0 characters';
+  });
+  text.addEventListener('input', () => {
+    publish.disabled = text.value.trim().length === 0;
+    document.getElementById('charcount').textContent = text.value.length + ' characters';
+  });
+  publish.addEventListener('click', () => {
+    if (publish.disabled) return;
+    toast.classList.add('show');
+    text.value = '';
+    publish.disabled = true;
+    setTimeout(() => toast.classList.remove('show'), 4000);
+  });
+</script>
+</body>
+</html>

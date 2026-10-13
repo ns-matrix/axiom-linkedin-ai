@@ -1,0 +1,32 @@
+{
+  "manifest_version": 3,
+  "name": "Axiom LinkedIn AI",
+  "version": "0.3.0",
+  "description": "Supervised LinkedIn assistant with local Ollama, learned skills and gated execution.",
+  "permissions": [
+    "storage",
+    "sidePanel",
+    "activeTab",
+    "scripting",
+    "tabs",
+    "alarms"
+  ],
+  "optional_host_permissions": [
+    "http://*/*",
+    "https://*/*"
+  ],
+  "host_permissions": [
+    "http://127.0.0.1:8765/*",
+    "http://localhost:8765/*",
+    "http://127.0.0.1:11434/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_title": "Open Axiom LinkedIn AI"
+  },
+  "side_panel": {
+    "default_path": "index.html"
+  }
+}
