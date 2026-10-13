@@ -126,3 +126,59 @@ def test_locator_priority_prefers_stable_strategies(sample_recording):
     fill = next(s for s in skill.steps if s.action == "fill")
     strategies = [l.strategy for l in fill.target]
     assert strategies[0] in ("role", "placeholder")  # role/placeholder before css
+
+
+def test_keystroke_fills_collapse_and_unlabeled_clicks_gated():
+    """Real-world shape: slow per-keystroke typing + an unlabeled 'Post' span."""
+    from axiom.actions import validate_step
+
+    compose = "https://www.linkedin.com/sharing/compose"
+    editor = element("div", [loc("css",
+        "body > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(1)",
+        brittle=True, priority=70)])
+    post_span = element("span", [loc("css",
+        "body > div:nth-of-type(1) > footer:nth-of-type(2) > button:nth-of-type(2) > span:nth-of-type(1)",
+        brittle=True, priority=70)])
+
+    events = [event(0, "navigate", 1000.0, compose)]
+    t = 1001.0
+    for i in range(12):
+        t += 0.2 + (i % 3) * 0.45  # gaps up to 1.1s: slower than the dedupe window
+        events.append(event(1 + i, "fill", t, compose, editor,
+                            value_length=12 - i, variable="text_value"))
+    events.append(event(13, "click", t + 2.0, compose, post_span))
+
+    skill = build_skill(Recording(name="Create A post",
+                                  origin="https://www.linkedin.com", events=events),
+                        "Create A post")
+
+    fills = [s for s in skill.steps if s.action == "fill"]
+    assert len(fills) == 1, "keystroke runs must collapse into one fill step"
+    assert fills[0].parameters["value"] == "{{text_value}}"
+
+    clicks = [s for s in skill.steps if s.action == "click"]
+    assert len(clicks) == 1
+    assert clicks[0].requires_approval is True, "unlabeled click could be Post"
+    assert clicks[0].risk_level == "high"
+    assert clicks[0].title != "Click element"
+    assert "button" in clicks[0].title, "title should hint at the structural parent"
+
+    assert all(validate_step(s) == [] for s in skill.steps)
+    assert any("no accessible label" in w for w in skill.warnings)
+    assert any("brittle" in w for w in skill.warnings)
+
+
+def test_unlabeled_fields_get_distinct_variables():
+    field_a = element("div", [loc("css", "body > div:nth-of-type(1) > div:nth-of-type(2)")])
+    field_b = element("input", [loc("css", "body > input:nth-of-type(17)")])
+    events = [
+        event(0, "fill", 1.0, "https://example.com/", field_a,
+              value_length=3, variable="text_value"),
+        event(1, "fill", 2.0, "https://example.com/", field_b,
+              value_length=5, variable="text_value"),
+    ]
+    skill = build_skill(Recording(origin="https://example.com", events=events), "Two fields")
+
+    assert [i.name for i in skill.input_schema] == ["text_value", "text_value_2"]
+    values = [s.parameters["value"] for s in skill.steps if s.action == "fill"]
+    assert values == ["{{text_value}}", "{{text_value_2}}"]

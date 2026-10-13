@@ -35,6 +35,7 @@ GENERIC_TOKENS = {
 #: CSS patterns that usually break between sessions.
 BRITTLE_CSS_PATTERNS = (
     re.compile(r":nth-child\("),
+    re.compile(r":nth-of-type\("),
     re.compile(r"#ember\d+", re.I),
     re.compile(r"react-aria", re.I),
     re.compile(r":r[0-9a-z]{4,}", re.I),
@@ -124,6 +125,23 @@ def _event_risk(event: RecordingEvent) -> RiskLevel:
     return "low"
 
 
+def _merge_fill(a: RecordingEvent, b: RecordingEvent) -> RecordingEvent:
+    """Combine two keystroke-level fill events for the same field into one.
+
+    Keeps the longest captured value (or the recorded text when consented),
+    and the latest timestamp so post-recording gap detection still works.
+    """
+    richer = b if (b.value_length or 0) > (a.value_length or 0) else a
+    merged = richer.model_copy(deep=True)
+    merged.timestamp = max(a.timestamp, b.timestamp)
+    if not (merged.consent_text_recorded and merged.value) and a.consent_text_recorded and a.value:
+        merged.value = a.value
+        merged.consent_text_recorded = True
+    if merged.value_length is None:
+        merged.value_length = max(a.value_length or 0, b.value_length or 0) or None
+    return merged
+
+
 def _dedupe(events: list[RecordingEvent]) -> list[RecordingEvent]:
     kept: list[RecordingEvent] = []
     for event in events:
@@ -131,11 +149,14 @@ def _dedupe(events: list[RecordingEvent]) -> list[RecordingEvent]:
             prev = kept[-1]
             same_target = _locator_key(prev) == _locator_key(event)
             close_in_time = abs(event.timestamp - prev.timestamp) < 0.75
-            if same_target and event.action_type == prev.action_type and close_in_time:
-                # keep the richer of the two (e.g. later fill with text)
-                if event.action_type == "fill" and (event.value or event.value_length):
-                    kept[-1] = event
-                continue
+            if same_target and event.action_type == prev.action_type:
+                if event.action_type in ("fill", "select"):
+                    # Keystroke runs on one field collapse regardless of typing
+                    # speed: consecutive fills of the same target are one step.
+                    kept[-1] = _merge_fill(prev, event)
+                    continue
+                if close_in_time:
+                    continue
             if event.action_type == "scroll" and prev.action_type == "scroll" and close_in_time:
                 kept[-1] = event
                 continue
@@ -173,6 +194,25 @@ def _expected_for_click(events: list[RecordingEvent], index: int) -> tuple[str, 
     if label:
         return (f"Action on '{label}' accepted by the page", VerificationSpec(method="none"))
     return ("Click accepted by the page", VerificationSpec(method="none"))
+
+
+def _unlabeled_title(event: RecordingEvent) -> str:
+    """Readable title for a click that carried no accessible name.
+
+    Includes the structural parent (e.g. 'footer:nth-of-type(2)') so several
+    unnamed clicks can be told apart in the review list.
+    """
+    tag = event.element.tag if event.element else "element"
+    hint = ""
+    locs = best_locators(event.element, limit=4) or []
+    css = next((l.value for l in locs if l.strategy == "css"), "")
+    if ">" in css:
+        segments = [s.strip() for s in css.split(">")]
+        parent = segments[-2] if len(segments) >= 2 else segments[-1]
+        parent = re.sub(r"\s+", " ", parent)[:40]
+        if parent:
+            hint = f" in {parent}"
+    return f"Click {tag}{hint}"[:80]
 
 
 def _group_steps(events: list[RecordingEvent]) -> list[SkillStep]:
@@ -267,13 +307,21 @@ def _group_steps(events: list[RecordingEvent]) -> list[SkillStep]:
             continue
 
         if event.action_type in ("click", "submit"):
-            label = _event_label(event) or ("Submit form" if event.action_type == "submit" else "Click element")
+            label = _event_label(event)
+            unlabeled = not label
+            if unlabeled:
+                label = "Submit form" if event.action_type == "submit" else _unlabeled_title(event)
             locs = best_locators(event.element)
             expected, verification = _expected_for_click(events, i)
             risk = _event_risk(event)
             consequential = is_consequential(
                 SkillStep(step_id="x", title=label, action="click", target=locs, parameters={}, requires_approval=(risk == "high"))
             )
+            if unlabeled and not consequential:
+                # No accessible name means we cannot prove this is not Post/Send/
+                # Delete. Unknown clicks are gated for safety.
+                risk = "high"
+                consequential = True
             steps.append(
                 SkillStep(
                     step_id=uid("st"),
@@ -322,8 +370,11 @@ def build_skill(
         if event.element and event.element.sensitive:
             raise ValueError("recording contains a sensitive element (password field); refusing to save")
 
-    # Fill events carry a variable hint the recorder may have proposed.
-    used_vars: set[str] = set()
+    # Fill events carry a variable hint the recorder may have proposed. Seed
+    # the pool with those hints so auto-named fields cannot collide with them.
+    used_vars: set[str] = {
+        e.variable for e in raw if e.action_type in ("fill", "select") and e.variable
+    }
     for event in raw:
         if event.action_type in ("fill", "select") and not event.variable:
             event.variable = _var_name(event.element, used_vars)
@@ -376,6 +427,20 @@ def build_skill(
     if brittle_count:
         warnings.append(f"{brittle_count} brittle locator(s) detected (generated ids / nth-child).")
 
+    # Two different fields must not share one variable, even if the recorder
+    # proposed the same slug for both (e.g. two unnamed inputs).
+    var_target_keys: dict[str, str] = {}
+    for step in steps:
+        if step.action in ("fill", "select") and step.variable:
+            key = ";".join(f"{l.strategy}:{l.value}" for l in (step.target or [])) or step.title
+            if step.variable in var_target_keys and var_target_keys[step.variable] != key:
+                base = step.variable
+                n = 2
+                while f"{base}_{n}" in var_target_keys:
+                    n += 1
+                step.variable = f"{base}_{n}"
+            var_target_keys.setdefault(step.variable, key)
+
     # Fill steps whose value is a variable placeholder become required inputs.
     inputs: list[SkillInput] = []
     seen_vars: set[str] = set()
@@ -411,6 +476,13 @@ def build_skill(
     ]
     if approval_reqs:
         warnings.append("These steps need explicit approval every run: " + "; ".join(approval_reqs))
+    unlabeled_gated = [s for s in steps if s.requires_approval and s.title.startswith("Click ")]
+    if unlabeled_gated:
+        warnings.append(
+            f"{len(unlabeled_gated)} click(s) had no accessible label and are gated because they "
+            "could be consequential (Post, Send, Delete...). Re-record with element labels visible "
+            "for a smoother run."
+        )
 
     origin = recording.origin or (raw[0].origin if raw else "")
     preconditions = [

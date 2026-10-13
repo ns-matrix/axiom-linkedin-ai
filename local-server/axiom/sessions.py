@@ -125,14 +125,16 @@ def _target_label(target: list[Locator] | None) -> str:
 
 def create_session(plan: Plan, tab_id: int | None = None) -> Session:
     with _LOCK:
+        # Status first: a plan missing inputs should say so, not surface a
+        # cryptic validation error about the empty values it caused.
+        if plan.status not in ("ready", "approved"):
+            raise SessionError(f"plan is not executable (status '{plan.status}')"
+                               + (f": {plan.message}" if plan.message else ""))
         errors = validate_steps(plan.steps)
         if errors:
             raise SessionError("plan contains non-allowlisted steps: " + "; ".join(errors[:3]))
         if not plan.steps:
             raise SessionError("plan has no steps")
-        if plan.status not in ("ready", "approved"):
-            raise SessionError(f"plan is not executable (status '{plan.status}')"
-                               + (f": {plan.message}" if plan.message else ""))
         session = Session(plan=plan, execution_tab_id=tab_id)
         session.steps = [StepRuntime(step=step, index=i) for i, step in enumerate(plan.steps)]
         # A plan always starts gated: a generic "start task" is not enough

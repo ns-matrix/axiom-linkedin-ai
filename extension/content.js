@@ -199,10 +199,37 @@
     return slug || "text_value";
   }
 
+  const INTERACTIVE_SELECTOR = [
+    "button", "a[href]", 'input[type="button"]', 'input[type="submit"]', 'input[type="reset"]',
+    '[role="button"]', '[role="link"]', '[role="menuitem"]', '[role="menuitemcheckbox"]',
+    '[role="menuitemradio"]', '[role="tab"]', '[role="option"]', '[role="switch"]',
+    '[role="checkbox"]', '[role="radio"]',
+  ].join(", ");
+
+  function resolveClickTarget(el) {
+    if (!el || el.nodeType !== 1) return el;
+    if (implicitRole(el) && accessibleName(el)) return el;
+    let node = el.parentElement;
+    for (let depth = 0; node && depth < 4; depth++, node = node.parentElement) {
+      if (node.matches(INTERACTIVE_SELECTOR) && implicitRole(node) && accessibleName(node)) return node;
+    }
+    return el;
+  }
+
+  function resolveFillTarget(el) {
+    if (!el || el.nodeType !== 1) return el;
+    const editable = el.closest('[contenteditable="true"], [contenteditable=""]');
+    if (editable && editable !== el) return editable;
+    return el;
+  }
+
   // ---------------------------- recorder ---------------------------------- //
   function emit(actionType, el, extra = {}) {
     if (!state.recording) return;
-    const target = el ? targetMetadata(el) : null;
+    let targetEl = el;
+    if ((actionType === "click" || actionType === "submit") && el) targetEl = resolveClickTarget(el);
+    else if (actionType === "fill" && el) targetEl = resolveFillTarget(el);
+    const target = targetEl ? targetMetadata(targetEl) : null;
     if (target && target.sensitive) return;
     state.seq += 1;
     chrome.runtime.sendMessage({

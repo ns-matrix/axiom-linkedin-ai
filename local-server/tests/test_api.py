@@ -242,8 +242,9 @@ def test_session_errors(client, mock_llm):
     assert client.post("/sessions/ses_missing/claim").status_code == 404
 
 
-def test_session_rejects_plan_with_unready_status(client):
+def test_session_rejects_plan_with_unready_status(client, mock_llm):
     create_skill_via_api(client)
+    mock_llm.install(json.dumps({"inputs": {"post_text": "Sample post text"}, "draft": None}))
     plan = client.post("/tasks/plan", json={"goal": "Create a LinkedIn post"}).json()["plan"]
     plan["status"] = "needs_inputs"
     resp = client.post("/sessions", json={"plan": plan})
